@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>평범한 체스</title>
+    <title>변칙 모바일 체스</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
         body {
@@ -85,24 +85,26 @@
     <button id="btn-restart" onclick="initGame()">다시하기</button>
 
 <script>
-    // 기물 심볼 정의
     const PIECES = {
-        wP: '♙', wR: '♖', wN: '♞', wB: '♗', wQ: '♕', wK: '♔',
+        wP: '♙', wR: '♖', wN: '♘', wB: '♗', wQ: '♕', wK: '♔',
         bP: '♟', bR: '♜', bN: '♞', bB: '♝', bQ: '♛', bK: '♚'
     };
 
     let board = [];
-    let turnCount = 1; // 1부터 시작 (백->흑이 1턴)
+    let turnCount = 1; 
     let isGameOver = false;
     let selectedCell = null;
     let validMoves = [];
-    let bombPosition = null; // {r, c}
+    let bombPosition = null; 
     let hasCastled = { white: false, black: false };
     let kingMoved = { white: false, black: false };
     let rookMoved = {
         white_0: false, white_7: false,
         black_0: false, black_7: false
     };
+    
+    // AI의 무적 기물 좌표 저장 변수
+    let invinciblePiecePos = null;
 
     const boardEl = document.getElementById('board');
     const statusEl = document.getElementById('status');
@@ -128,6 +130,21 @@
         kingMoved = { white: false, black: false };
         rookMoved = { white_0: false, white_7: false, black_0: false, black_7: false };
         
+        // AI 기물 중 킹(bK)을 제외한 랜덤 기물 하나를 무적으로 지정
+        let aiPiecesExceptKing = [];
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                if (board[r][c] && board[r][c].startsWith('b') && board[r][c] !== 'bK') {
+                    aiPiecesExceptKing.push({ r, c });
+                }
+            }
+        }
+        if (aiPiecesExceptKing.length > 0) {
+            invinciblePiecePos = aiPiecesExceptKing[Math.floor(Math.random() * aiPiecesExceptKing.length)];
+        } else {
+            invinciblePiecePos = null;
+        }
+
         statusEl.innerText = "당신의 턴 (백)";
         restartBtn.style.display = 'none';
         renderBoard();
@@ -173,10 +190,8 @@
     function onCellClick(r, c) {
         if (isGameOver) return;
         
-        // 백의 턴일 때만 플레이어 조작 가능
         const piece = board[r][c];
         
-        // 이미 선택된 칸을 다시 누르면 취소
         if (selectedCell && selectedCell.r === r && selectedCell.c === c) {
             selectedCell = null;
             validMoves = [];
@@ -184,25 +199,24 @@
             return;
         }
 
-        // 추천 이동 경로를 클릭한 경우 이동 처리
         const move = validMoves.find(m => m.r === r && m.c === c);
         if (move) {
-            executeMove(selectedCell.r, selectedCell.c, r, c);
+            const sr = selectedCell.r;
+            const sc = selectedCell.c;
             selectedCell = null;
             validMoves = [];
-            renderBoard();
             
-            if (!isGameOver) {
-                // 적 턴 시작 전 폭탄 체크 (적 턴이 돌아올 때 터짐)
-                checkBombExplosion();
+            if(executeMove(sr, sc, r, c)) {
+                renderBoard();
                 if (!isGameOver) {
                     setTimeout(aiTurn, 400);
                 }
+            } else {
+                renderBoard();
             }
             return;
         }
 
-        // 자신의 기물 선택
         if (piece && piece.startsWith('w')) {
             selectedCell = { r, c };
             validMoves = getValidMoves(r, c, board);
@@ -214,7 +228,6 @@
         }
     }
 
-    // 기본 이동 규칙 생성
     function getValidMoves(r, c, currentBoard) {
         const piece = currentBoard[r][c];
         if (!piece) return [];
@@ -234,14 +247,12 @@
             const dir = color === 'w' ? -1 : 1;
             const startRow = color === 'w' ? 6 : 1;
             
-            // 전진
             if (isInBounds(r+dir, c) && !currentBoard[r+dir][c]) {
                 moves.push({ r: r+dir, c });
                 if (r === startRow && !currentBoard[r+dir*2][c]) {
                     moves.push({ r: r+dir*2, c });
                 }
             }
-            // 대각선 공격
             const attackCols = [c-1, c+1];
             attackCols.forEach(ac => {
                 if (isInBounds(r+dir, ac)) {
@@ -282,16 +293,13 @@
                 }
             });
 
-            // 캐슬링 규칙 추가 (킹일 때만)
             if (type === 'K' && !kingMoved[color === 'w' ? 'white' : 'black'] && !hasCastled[color === 'w' ? 'white' : 'black']) {
                 const row = color === 'w' ? 7 : 0;
-                // 킹사이드 캐슬링 (우측)
                 if (!rookMoved[color === 'w' ? 'white_7' : 'black_7'] && !currentBoard[row][5] && !currentBoard[row][6] && currentBoard[row][7] === color+'R') {
-                    moves.push({ r: row, c: 6, isCastle: 'king' });
+                    moves.push({ r: row, c: 6 });
                 }
-                // 퀸사이드 캐슬링 (좌측)
                 if (!rookMoved[color === 'w' ? 'white_0' : 'black_0'] && !currentBoard[row][1] && !currentBoard[row][2] && !currentBoard[row][3] && currentBoard[row][0] === color+'R') {
-                    moves.push({ r: row, c: 2, isCastle: 'queen' });
+                    moves.push({ r: row, c: 2 });
                 }
             }
         }
@@ -304,49 +312,47 @@
     }
 
     function executeMove(sr, sc, tr, tc) {
+        if (isGameOver) return false;
+
         const piece = board[sr][sc];
         const targetPiece = board[tr][tc];
 
-        // 규칙 7: 인공지능의 나이트(bN)는 무적 (백이 bN을 직접 잡으려 하면 이동 불가)
-        if (piece.startsWith('w') && targetPiece === 'bN') {
-            alert("상대의 나이트는 무적입니다! 다른 곳으로 이동하세요.");
-            return;
+        if (!piece) return false;
+
+        // 플레이어가 지정된 AI의 무적 기물을 공격하려 할 때 차단
+        if (piece.startsWith('w') && invinciblePiecePos && invinciblePiecePos.r === tr && invinciblePiecePos.c === tc) {
+            alert("상대의 기물은 무적입니다! 다른 곳으로 이동하세요.");
+            return false;
         }
 
-        // 규칙 10: 플레이어가 인공지능의 킹을 직접 잡으면 반칙패로 AI 승리
         if (piece.startsWith('w') && targetPiece === 'bK') {
             endGame("인공지능의 킹을 직접 제거하여 반칙패했습니다! (인공지능 승리)");
-            return;
+            return false;
         }
 
-        // 규칙 9: 인공지능이 플레이어의 킹을 직접 잡으면 AI 승리
         if (piece.startsWith('b') && targetPiece === 'wK') {
             board[tr][tc] = piece;
             board[sr][sc] = '';
-            renderBoard();
             endGame("인공지능이 당신의 킹을 직접 잡았습니다! (인공지능 승리)");
-            return;
+            return false;
         }
 
-        // 폭탄 제거 기능 (플레이어가 폭탄이 있는 칸으로 이동 시 폭탄 획득/제거)
         if (bombPosition && bombPosition.r === tr && bombPosition.c === tc) {
             bombPosition = null;
         }
 
-        // 캐슬링 실제 판정 처리
         if (piece[1] === 'K' && Math.abs(sc - tc) === 2) {
             const row = piece[0] === 'w' ? 7 : 0;
-            if (tc === 6) { // 킹사이드
+            if (tc === 6) { 
                 board[row][5] = board[row][7];
                 board[row][7] = '';
-            } else if (tc === 2) { // 퀸사이드
+            } else if (tc === 2) { 
                 board[row][3] = board[row][0];
                 board[row][0] = '';
             }
             hasCastled[piece[0] === 'w' ? 'white' : 'black'] = true;
         }
 
-        // 킹 및 룩 이동 기록 갱신 (캐슬링 불가 판정용)
         if (piece === 'wK') kingMoved.white = true;
         if (piece === 'bK') kingMoved.black = true;
         if (piece === 'wR' && sr === 7 && sc === 0) rookMoved.white_0 = true;
@@ -354,103 +360,105 @@
         if (piece === 'bR' && sr === 0 && sc === 0) rookMoved.black_0 = true;
         if (piece === 'bR' && sr === 0 && sc === 7) rookMoved.black_7 = true;
 
-        // 기물 이동
+        // 무적 기물이 이동하는 경우 좌표 업데이트
+        if (invinciblePiecePos && invinciblePiecePos.r === sr && invinciblePiecePos.c === sc) {
+            invinciblePiecePos = { r: tr, c: tc };
+        }
+
         board[tr][tc] = piece;
         board[sr][sc] = '';
 
-        // 규칙 5: 폰 자동 퀸 프로모션
         if (piece === 'wP' && tr === 0) board[tr][tc] = 'wQ';
         if (piece === 'bP' && tr === 7) board[tr][tc] = 'bQ';
 
-        // 규칙 11: 플레이어가 AI의 킹을 체크메이트 상태로 만들었는지 체크
         if (piece.startsWith('w')) {
             if (isCheckmate('b')) {
-                renderBoard();
                 endGame("축하합니다! 인공지능을 체크메이트했습니다! (플레이어 승리)");
-                return;
+                return false;
             }
         } else {
-            // 규칙 9: AI가 플레이어를 체크메이트 시켰는지 체크
             if (isCheckmate('w')) {
-                renderBoard();
                 endGame("인공지능이 당신을 체크메이트했습니다! (인공지능 승리)");
-                return;
+                return false;
             }
         }
+
+        return true;
     }
 
-    // 폭탄 폭발 체크
     function checkBombExplosion() {
-        if (!bombPosition) return;
+        if (!bombPosition) return false;
         
         const { r, c } = bombPosition;
-        // 인접 8칸 + 중심 폭파
+        let kingExploded = null;
+        
         for (let dr = -1; dr <= 1; dr++) {
             for (let dc = -1; dc <= 1; dc++) {
                 const nr = r + dr;
                 const nc = c + dc;
                 if (isInBounds(nr, nc)) {
-                    // 폭탄이 터져서 킹이 죽는지 체크 (규칙 18: 폭탄으로 바로 게임이 끝나진 않으나 킹 소멸 여부 확인)
                     const p = board[nr][nc];
+                    if (p === 'wK') kingExploded = 'w';
+                    if (p === 'bK') kingExploded = 'b';
+                    
+                    // 만약 무적 기물이 폭발 범위에 있어도 같이 제거됨 (좌표 초기화)
+                    if (invinciblePiecePos && invinciblePiecePos.r === nr && invinciblePiecePos.c === nc) {
+                        invinciblePiecePos = null;
+                    }
                     board[nr][nc] = '';
-                    if (p === 'wK') {
-                        renderBoard();
-                        endGame("폭탄 폭발로 당신의 킹이 소멸했습니다! (인공지능 승리)");
-                        return;
-                    }
-                    if (p === 'bK') {
-                        renderBoard();
-                        endGame("폭탄 폭발로 인공지능의 킹이 소멸했습니다! (반칙패 처리 - 인공지능 승리)");
-                        return;
-                    }
                 }
             }
         }
         bombPosition = null;
         renderBoard();
+
+        if (kingExploded === 'w') {
+            endGame("폭탄 폭발로 당신의 킹이 소멸했습니다! (인공지능 승리)");
+            return true;
+        }
+        if (kingExploded === 'b') {
+            endGame("폭탄 폭발로 인공지능의 킹이 소멸했습니다! (반칙패 처리 - 인공지능 승리)");
+            return true;
+        }
+        return false;
     }
 
-    // 인공지능 턴 처리
     function aiTurn() {
         if (isGameOver) return;
         statusEl.innerText = "인공지능이 생각 중...";
+
+        if (checkBombExplosion()) return;
 
         turnCount++;
         let rand = Math.random();
         let cheatTriggered = false;
 
-        // 규칙 6: 6번째 턴(백/흑 행동 세트 기준 혹은 각 누적행동 기준, 여기선 전체 누적 진행도로 유연하게 처리)부터 반칙 적용
         if (turnCount >= 6) {
             if (rand < 0.35) {
-                // 반칙 패턴 A: 35% 확률로 아무 기물이나 원하는 곳 순간이동 (플레이어 킹 자리 불가)
                 cheatTriggered = runAiTeleportCheat();
-            } else if (rand < 0.35 + 0.20) {
-                // 반칙 패턴 B: 20% 확률로 AI 킹 주변 8칸에 랜덤 기물(킹 제외) 생성 (플레이어 기물 위 불가)
+            } else if (rand < 0.55) { 
                 cheatTriggered = runAiSpawnCheat();
-            } else if (rand < 0.35 + 0.20 + 0.10) {
-                // 반칙 패턴 C: 10% 확률로 두 기물 동시 이동
+            } else if (rand < 0.65) { 
                 cheatTriggered = runAiDoubleMoveCheat();
             }
         }
 
-        // 반칙이 발동되지 않았다면 정상적인 랜덤/기본 AI 이동
         if (!cheatTriggered) {
             executeStandardAiMove();
         }
 
-        // 규칙 15: AI는 자신의 턴에 5% 확률로 폭탄 설치 (플레이어 기물이 없는 곳)
-        if (Math.random() < 0.05 && !bombPosition) {
-            let emptyOrAiCells = [];
+        // 규칙 15: AI 턴 종료 시 5% 확률로 기물이 없는 빈 칸에만 폭탄 예약 설치
+        if (!isGameOver && Math.random() < 0.05 && !bombPosition) {
+            let completelyEmptyCells = [];
             for (let r = 0; r < 8; r++) {
                 for (let c = 0; c < 8; c++) {
-                    if (!board[r][c] || board[r][c].startsWith('b')) {
-                        emptyOrAiCells.push({ r, c });
+                    if (!board[r][c]) {
+                        completelyEmptyCells.push({ r, c });
                     }
                 }
             }
-            if (emptyOrAiCells.length > 0) {
-                const target = emptyOrAiCells[Math.floor(Math.random() * emptyOrAiCells.length)];
-                bombPosition = target;
+            if (completelyEmptyCells.length > 0) {
+                bombPosition = completelyEmptyCells[Math.floor(Math.random() * completelyEmptyCells.length)];
             }
         }
 
@@ -475,14 +483,12 @@
         }
 
         if (allMoves.length > 0) {
-            // 공격 가능한 수 최우선 선택, 없다면 랜덤
             let captures = allMoves.filter(m => board[m.tr][m.tc] && board[m.tr][m.tc].startsWith('w'));
             let chosen = captures.length > 0 ? captures[Math.floor(Math.random() * captures.length)] : allMoves[Math.floor(Math.random() * allMoves.length)];
             executeMove(chosen.sr, chosen.sc, chosen.tr, chosen.tc);
         }
     }
 
-    // 순간이동 반칙
     function runAiTeleportCheat() {
         let aiPieces = [];
         let playerKingPos = null;
@@ -497,7 +503,7 @@
         let validTargets = [];
         for (let r = 0; r < 8; r++) {
             for (let c = 0; c < 8; c++) {
-                if (playerKingPos && playerKingPos.r === r && playerKingPos.c === c) continue; // 플레이어 킹자리 불가
+                if (playerKingPos && playerKingPos.r === r && playerKingPos.c === c) continue; 
                 validTargets.push({ r, c });
             }
         }
@@ -505,32 +511,18 @@
         const piecePos = aiPieces[Math.floor(Math.random() * aiPieces.length)];
         const targetPos = validTargets[Math.floor(Math.random() * validTargets.length)];
 
-        executeMove(piecePos.r, piecePos.sc, targetPos.r, targetPos.c);
+        executeMove(piecePos.r, piecePos.c, targetPos.r, targetPos.c);
         statusEl.innerText = "🚨 AI가 순간이동 반칙을 사용했습니다!";
         return true;
     }
 
-    // 기물 생성 반칙
     function runAiSpawnCheat() {
-        let aiKingPos = null;
-        for (let r = 0; r < 8; r++) {
-            for (let c = 0; c < 8; c++) {
-                if (board[r][c] === 'bK') aiKingPos = { r, c };
-            }
-        }
-        if (!aiKingPos) return false;
-
+        // 체스판의 위쪽 4열(0~3행) 중 백의 기물이 없는(빈칸이거나 흑의 기물만 있는) 칸 수집
         let spawnCells = [];
-        for (let dr = -1; dr <= 1; dr++) {
-            for (let dc = -1; dc <= 1; dc++) {
-                if (dr === 0 && dc === 0) continue;
-                const nr = aiKingPos.r + dr;
-                const nc = aiKingPos.c + dc;
-                if (isInBounds(nr, nc)) {
-                    // 플레이어의 기물이 없는 곳만 가능
-                    if (!board[nr][nc] || board[nr][nc].startsWith('b')) {
-                        spawnCells.push({ r: nr, c: nc });
-                    }
+        for (let r = 0; r < 4; r++) {
+            for (let c = 0; c < 8; c++) {
+                if (!board[r][c] || board[r][c].startsWith('b')) {
+                    spawnCells.push({ r, c });
                 }
             }
         }
@@ -546,7 +538,6 @@
         return true;
     }
 
-    // 연속 이동 반칙
     function runAiDoubleMoveCheat() {
         let allMoves = [];
         for (let r = 0; r < 8; r++) {
@@ -559,59 +550,52 @@
         }
         if (allMoves.length === 0) return false;
 
-        // 첫 번째 이동
         let first = allMoves[Math.floor(Math.random() * allMoves.length)];
-        executeMove(first.sr, first.sc, first.tr, first.tc);
+        let continueGame = executeMove(first.sr, first.sc, first.tr, first.tc);
 
-        // 두 번째 이동 조합 탐색
-        let secondMoves = [];
-        for (let r = 0; r < 8; r++) {
-            for (let c = 0; c < 8; c++) {
-                if (board[r][c] && board[r][c].startsWith('b')) {
-                    let m = getValidMoves(r, c, board);
-                    m.forEach(move => secondMoves.push({ sr: r, sc: c, tr: move.r, tc: move.c }));
+        if (continueGame && !isGameOver) {
+            let secondMoves = [];
+            for (let r = 0; r < 8; r++) {
+                for (let c = 0; c < 8; c++) {
+                    if (board[r][c] && board[r][c].startsWith('b')) {
+                        let m = getValidMoves(r, c, board);
+                        m.forEach(move => secondMoves.push({ sr: r, sc: c, tr: move.r, tc: move.c }));
+                    }
                 }
             }
-        }
 
-        if (secondMoves.length > 0) {
-            let second = secondMoves[Math.floor(Math.random() * secondMoves.length)];
-            executeMove(second.sr, second.sc, second.tr, second.tc);
+            if (secondMoves.length > 0) {
+                let second = secondMoves[Math.floor(Math.random() * secondMoves.length)];
+                executeMove(second.sr, second.sc, second.tr, second.tc);
+            }
         }
 
         statusEl.innerText = "🚨 AI가 연속 이동 반칙을 사용했습니다!";
         return true;
     }
 
-    // 간단한 체크메이트 여부 판별 함수
     function isCheckmate(color) {
-        // 상대 킹이 존재하는지 찾음
-        let kingPos = null;
+        let kingFound = false;
         for (let r = 0; r < 8; r++) {
             for (let c = 0; c < 8; c++) {
                 if (board[r][c] === color + 'K') {
-                    kingPos = { r, c };
+                    kingFound = true;
                     break;
                 }
             }
         }
-        if (!kingPos) return true; // 킹이 사라졌다면 체크메이트(패배)로 간주
+        if (!kingFound) return true; 
 
-        // 규칙 8: 킹은 체크를 무조건 피할 필요가 없으므로 합법적인 탈출구 연산은 제외하고,
-        // 단순 규칙 적용을 위해 모든 아군 기물이 더 이상 움직일 수 없거나 킹이 위기에 처했을 때 판정하는 미니멀 로직 구현
-        // 여기서는 대상 진영의 모든 기물이 이동 불가능할 때만 단순 판단하거나, 실시간 체크메이트 판정을 간소화합니다.
-        let hasAnyMove = false;
         for (let r = 0; r < 8; r++) {
             for (let c = 0; c < 8; c++) {
                 if (board[r][c] && board[r][c].startsWith(color)) {
                     if (getValidMoves(r, c, board).length > 0) {
-                        hasAnyMove = true;
-                        break;
+                        return false; 
                     }
                 }
             }
         }
-        return !hasAnyMove;
+        return true; 
     }
 
     function endGame(message) {
@@ -620,7 +604,6 @@
         restartBtn.style.display = 'block';
     }
 
-    // 첫 실행
     initGame();
 </script>
 </body>
